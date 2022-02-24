@@ -1,21 +1,3 @@
-/*
- * AMD IPMI LED control
- * Copyright (C) 2021, Advanced Micro Devices, Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
- *
- */
 
 #include <errno.h>
 #include <fcntl.h>
@@ -41,6 +23,9 @@
 #include "utils.h"
 #include "amd.h"
 #include "ipmi.h"
+
+#define SM_CHAN 0x0
+#define SM_SLAVE_ADDR 0x0
 
 static uint8_t amd_ibpi_ipmi_register[] = {
 	[IBPI_PATTERN_PFA] = 0x41,
@@ -102,20 +87,6 @@ static int _get_ipmi_nvme_port(char *path)
 
 	list_erase(&dir);
 
-	/* Some platfroms require an adjustment to the port value based
-	 * on how they are numbered by the BIOS.
-	 */
-	switch (amd_ipmi_platform) {
-	case AMD_PLATFORM_DAYTONA_X:
-		port -= 2;
-		break;
-	case AMD_PLATFORM_ETHANOL_X:
-		port -= 7;
-		break;
-	default:
-		break;
-	}
-
 	/* Validate port. Some BIOSes provide port values that are
 	 * not valid.
 	 */
@@ -123,33 +94,6 @@ static int _get_ipmi_nvme_port(char *path)
 		log_error("Invalid NVMe physical port %d\n", port);
 		port = -1;
 	}
-
-	return port;
-}
-
-static int _get_ipmi_sata_port(const char *start_path)
-{
-	int port;
-	char *p, *t;
-	char path[PATH_MAX];
-
-	strncpy(path, start_path, PATH_MAX);
-	path[PATH_MAX - 1] = 0;
-	t = p = strstr(path, "ata");
-
-	if (!p)
-		return -1;
-
-	/* terminate the path after the ataXX/ part */
-	p = strchr(p, '/');
-	if (!p)
-		return -1;
-	*p = '\0';
-
-	/* skip past 'ata' to get the ata port number */
-	t += 3;
-	if (str_toi(&port, t, NULL, 10) != 0)
-		return -1;
 
 	return port;
 }
@@ -170,98 +114,12 @@ static int _get_amd_ipmi_drive(const char *start_path,
 
 		drive->drive_bay = 1 << (drive->port - 1);
 		drive->dev = AMD_NVME_DEVICE;
-	} else {
-		int shift;
-
-		drive->port = _get_ipmi_sata_port(start_path);
-		if (drive->port < 0) {
-			log_error("Could not retrieve port number\n");
-			return -1;
-		}
-
-		/* IPMI control is handled through the MG9098 chips on
-		 * the platform, where each MG9098 chip can control up
-		 * to 8 drives. Since we can have multiple MG9098 chips,
-		 * we need the drive bay relative to the set of 8 controlled
-		 * by the MG9098 chip.
-		 */
-		shift = drive->port - 1;
-		if (shift >= 8)
-			shift %= 8;
-
-		drive->drive_bay = 1 << shift;
-		drive->dev = AMD_SATA_DEVICE;
 	}
 
 	log_debug("AMD Drive: port: %d, bay %x\n", drive->port,
 		  drive->drive_bay);
 
 	return 0;
-}
-
-static int _ipmi_platform_channel(struct amd_drive *drive)
-{
-	int rc = 0;
-
-	switch (amd_ipmi_platform) {
-	case AMD_PLATFORM_ETHANOL_X:
-		drive->channel =  0xd;
-		break;
-	case AMD_PLATFORM_DAYTONA_X:
-		drive->channel = 0x17;
-		break;
-	case AMD_PLATFORM_SUPERMICRO_X:
-		drive->channel = 0;
-		break;
-	default:
-		rc = -1;
-		log_error("AMD Platform does not have a defined IPMI channel\n");
-		break;
-	}
-
-	return rc;
-}
-
-static int _ipmi_platform_slave_address(struct amd_drive *drive)
-{
-	int rc = 0;
-
-	switch (amd_ipmi_platform) {
-	case AMD_PLATFORM_ETHANOL_X:
-		drive->slave_addr = 0xc0;
-		break;
-	case AMD_PLATFORM_DAYTONA_X:
-		if (drive->dev == AMD_NO_DEVICE) {
-			/* Assume base slave address, we may not be able
-			 * to retrieve a valid amd_drive yet.
-			 */
-			drive->slave_addr = 0xc0;
-		} else if (drive->dev == AMD_NVME_DEVICE) {
-			/* On DaytonaX systems only drive bays 19 - 24
-			 * support NVMe devices so use the slave address
-			 * for the corresponding MG9098 chip.
-			 */
-			drive->slave_addr = 0xc4;
-		} else {
-			if (drive->port <= 8)
-				drive->slave_addr = 0xc0;
-			else if (drive->port > 8 && drive->port < 17)
-				drive->slave_addr = 0xc2;
-			else
-				drive->slave_addr = 0xc4;
-		}
-
-		break;
-	case AMD_PLATFORM_SUPERMICRO_X:
-		drive->slave_addr = 0x20;
-		break;
-	default:
-		rc = -1;
-		log_error("AMD Platform does not have a defined IPMI slave address\n");
-		break;
-	}
-
-	return rc;
 }
 
 static int _set_ipmi_register(int enable, uint8_t reg,
@@ -271,19 +129,15 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 	int status, data_sz;
 	uint8_t drives_status;
 	uint8_t new_drives_status;
-	uint8_t cmd_data[5];
+	uint8_t cmd_data[6];
 
 	memset(cmd_data, 0, sizeof(cmd_data));
 
-	rc = _ipmi_platform_channel(drive);
-	rc |= _ipmi_platform_slave_address(drive);
-	if (rc)
-		return -1;
-
-	cmd_data[0] = drive->channel;
-	cmd_data[1] = drive->slave_addr;
-	cmd_data[2] = 0x1;
-	cmd_data[3] = reg;
+	cmd_data[0] = SM_CHAN; 
+	cmd_data[1] = SM_SLAVE_ADDR; 
+	cmd_data[2] = 0x6c;
+	cmd_data[3] = 1;
+	cmd_data[4] = reg;
 
 	/* Find current register setting */
 	status = 0;
@@ -292,7 +146,12 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 	log_debug(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
 	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
 
-	rc = ipmicmd(BMC_SA, 0x0, 0x6, 0x52, 4, &cmd_data, 1, &data_sz,
+	/*
+	 * int ipmicmd(int sa, int lun, int netfn, int cmd, int datalen, void *data,
+	 *      int resplen, int *rlen, void *resp);
+	 */
+
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 5, &cmd_data, 1, &data_sz,
 		     &status);
 	if (rc) {
 		log_error("Could not determine current register %x setting\n",
@@ -317,7 +176,7 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
 	log_debug(REG_FMT_1, "status", cmd_data[4]);
 
-	rc = ipmicmd(BMC_SA, 0x0, 0x6, 0x52, 5, &cmd_data, 1, &data_sz,
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 6, &cmd_data, 1, &data_sz,
 		     &status);
 	if (rc) {
 		log_error("Could not enable register %x\n", reg);
@@ -358,7 +217,7 @@ static int _disable_all_ibpi_states(struct amd_drive *drive)
 	return rc;
 }
 
-int _amd_ipmi_em_enabled(const char *path)
+int _amd_ipmi_sm_enabled(const char *path)
 {
 	int rc;
 	int status, data_sz;
@@ -367,18 +226,13 @@ int _amd_ipmi_em_enabled(const char *path)
 
 	memset(&drive, 0, sizeof(struct amd_drive));
 
-	rc = _ipmi_platform_channel(&drive);
-	rc |= _ipmi_platform_slave_address(&drive);
-	if (rc)
-		return -1;
-
-	cmd_data[0] = drive.channel;
-	cmd_data[1] = drive.slave_addr;
+	cmd_data[0] = SM_CHAN;
+	cmd_data[1] = SM_SLAVE_ADDR;
 	cmd_data[2] = 0x1;
-	cmd_data[3] = 0x63;
+	cmd_data[3] = 0x6c;
 
 	status = 0;
-	rc = ipmicmd(BMC_SA, 0x0, 0x6, 0x52, 4, &cmd_data, 1,
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 4, &cmd_data, 1,
 		     &data_sz, &status);
 
 	if (rc) {
@@ -386,15 +240,12 @@ int _amd_ipmi_em_enabled(const char *path)
 		return 0;
 	}
 
-	if (status != 98) {
-		log_error("Platform does not have a MG9098 controller\n");
-		return 0;
-	}
+	log_error("status => %i\n", status);
 
 	return 1;
 }
 
-int _amd_ipmi_write(struct block_device *device, enum ibpi_pattern ibpi)
+int _amd_ipmi_sm_write(struct block_device *device, enum ibpi_pattern ibpi)
 {
 	int rc;
 	struct amd_drive drive;
@@ -428,7 +279,7 @@ int _amd_ipmi_write(struct block_device *device, enum ibpi_pattern ibpi)
 	return 0;
 }
 
-char *_amd_ipmi_get_path(const char *cntrl_path, const char *sysfs_path)
+char *_amd_ipmi_sm_get_path(const char *cntrl_path, const char *sysfs_path)
 {
 	char *t;
 
