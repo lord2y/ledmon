@@ -116,7 +116,7 @@ static int _get_amd_ipmi_drive(const char *start_path,
 		drive->dev = AMD_NVME_DEVICE;
 	}
 
-	log_debug("AMD Drive: port: %d, bay %x\n", drive->port,
+	log_error("AMD Drive: port: %d, bay %x\n", drive->port,
 		  drive->drive_bay);
 
 	return 0;
@@ -142,9 +142,9 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 	/* Find current register setting */
 	status = 0;
 
-	log_debug("Retrieving current register status\n");
-	log_debug(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
-	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
+	log_error("Retrieving current register status\n");
+	log_error(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
+	log_error(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[4]);
 
 	/*
 	 * int ipmicmd(int sa, int lun, int netfn, int cmd, int datalen, void *data,
@@ -168,13 +168,13 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 
 	/* Set the appropriate status */
 	status = 0;
-	cmd_data[4] = new_drives_status;
+	cmd_data[5] = new_drives_status;
 
-	log_debug("Updating register status: %x -> %x\n", drives_status,
+	log_error("Updating register status: %x -> %x\n", drives_status,
 		  new_drives_status);
-	log_debug(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
-	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
-	log_debug(REG_FMT_1, "status", cmd_data[4]);
+	log_error(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
+	log_error(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[4]);
+	log_error(REG_FMT_1, "status", cmd_data[5]);
 
 	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 6, &cmd_data, 1, &data_sz,
 		     &status);
@@ -188,19 +188,19 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 
 static int _enable_smbus_control(struct amd_drive *drive)
 {
-	log_debug("Enabling SMBUS Control\n");
+	log_error("Enabling SMBUS Control\n");
 	return _set_ipmi_register(1, 0x3c, drive);
 }
 
 static int _enable_ibpi_state(struct amd_drive *drive, enum ibpi_pattern ibpi)
 {
-	log_debug("Enabling %s LED\n", ibpi2str(ibpi));
+	log_error("Enabling %s LED\n", ibpi2str(ibpi));
 	return _set_ipmi_register(1, amd_ibpi_ipmi_register[ibpi], drive);
 }
 
 static int _disable_ibpi_state(struct amd_drive *drive, enum ibpi_pattern ibpi)
 {
-	log_debug("Disabling %s LED\n", ibpi2str(ibpi));
+	log_error("Disabling %s LED\n", ibpi2str(ibpi));
 	return _set_ipmi_register(0, amd_ibpi_ipmi_register[ibpi], drive);
 }
 
@@ -240,8 +240,6 @@ int _amd_ipmi_sm_enabled(const char *path)
 		return 0;
 	}
 
-	log_error("status => %i\n", status);
-
 	return 1;
 }
 
@@ -250,8 +248,8 @@ int _amd_ipmi_sm_write(struct block_device *device, enum ibpi_pattern ibpi)
 	int rc;
 	struct amd_drive drive;
 
-	log_info("\n");
-	log_info("Setting %s...", ibpi2str(ibpi));
+	log_error("\n");
+	log_error("Setting %s...", ibpi2str(ibpi));
 
 	rc = _get_amd_ipmi_drive(device->cntrl_path, &drive);
 	if (rc)
