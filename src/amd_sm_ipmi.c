@@ -29,6 +29,9 @@
 #include "amd.h"
 #include "ipmi.h"
 
+#define SM_CHAN 0x0
+#define SM_SLAVE_ADDR 0x0
+
 static uint8_t amd_ibpi_ipmi_register[] = {
 	[IBPI_PATTERN_PFA] = 0x41,
 	[IBPI_PATTERN_LOCATE] = 0x0,
@@ -90,28 +93,6 @@ static int _get_ipmi_nvme_port(char *path)
 
 	list_erase(&dir);
 
-	/* Some platfroms require an adjustment to the port value based
-	 * on how they are numbered by the BIOS.
-	 */
-	switch (amd_ipmi_platform) {
-	case AMD_PLATFORM_DAYTONA_X:
-		port -= 2;
-		break;
-	case AMD_PLATFORM_ETHANOL_X:
-		port -= 7;
-		break;
-	default:
-		break;
-	}
-
-	/* Validate port. Some BIOSes provide port values that are
-	 * not valid.
-	 */
-	if ((port < 0) || (port > 24)) {
-		log_error("Invalid NVMe physical port %d\n", port);
-		port = -1;
-	}
-
 	return port;
 }
 
@@ -151,10 +132,11 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 
 	memset(cmd_data, 0, sizeof(cmd_data));
 
-	cmd_data[0] = drive->channel;
-	cmd_data[1] = drive->slave_addr;
-	cmd_data[2] = 0x1;
-	cmd_data[3] = reg;
+	cmd_data[0] = 0x6c;
+	cmd_data[1] = 0x1;
+	cmd_data[2] = 0x0;
+	cmd_data[3] = 0x0;
+	cmd_data[4] = reg;
 
 	/* Find current register setting */
 	status = 0;
@@ -163,7 +145,7 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 	log_debug(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
 	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
 
-	rc = ipmicmd(BMC_SA, 0x0, 0x6, 0x52, 4, &cmd_data, 1, &data_sz,
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 5, &cmd_data, 1, &data_sz,
 		     &status);
 	if (rc) {
 		log_error("Could not determine current register %x setting\n",
@@ -188,7 +170,7 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
 	log_debug(REG_FMT_1, "status", cmd_data[4]);
 
-	rc = ipmicmd(BMC_SA, 0x0, 0x6, 0x52, 5, &cmd_data, 1, &data_sz,
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 5, &cmd_data, 1, &data_sz,
 		     &status);
 	if (rc) {
 		log_error("Could not enable register %x\n", reg);
@@ -216,6 +198,7 @@ static int _disable_all_ibpi_states(struct amd_drive *drive)
 
 	rc = _disable_ibpi_state(drive, IBPI_PATTERN_PFA);
 	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_LOCATE);
+	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_LOCATE_OFF);
 	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_FAILED_DRIVE);
 	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_FAILED_ARRAY);
 	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_REBUILD);
@@ -230,16 +213,20 @@ int _amd_ipmi_sm_em_enabled(const char *path)
 	uint8_t cmd_data[4];
 	struct amd_drive drive;
 
+	log_debug("Enabling _adm_ipmi_sm_em_enabled(%s)\n", path);
+
 	memset(&drive, 0, sizeof(struct amd_drive));
 
-	cmd_data[0] = drive.channel;
-	cmd_data[1] = drive.slave_addr;
+	cmd_data[0] = SM_CHAN;
+	cmd_data[1] = SM_SLAVE_ADDR;
 	cmd_data[2] = 0x1;
-	cmd_data[3] = 0x63;
+	cmd_data[3] = 0x6c;
 
 	status = 0;
-	rc = ipmicmd(BMC_SA, 0x0, 0x6, 0x52, 4, &cmd_data, 1,
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 4, &cmd_data, 1,
 		     &data_sz, &status);
+
+	log_debug("rc => %i\n", rc);
 
 	if (rc) {
 		log_error("Can't determine status for SM-AMD platform\n");
@@ -269,7 +256,7 @@ int _amd_ipmi_sm_write(struct block_device *device, enum ibpi_pattern ibpi)
 	}
 
 	if (ibpi == IBPI_PATTERN_LOCATE_OFF) {
-		rc = _disable_ibpi_state(&drive, IBPI_PATTERN_LOCATE);
+		rc = _disable_ibpi_state(&drive, IBPI_PATTERN_LOCATE_OFF);
 		return rc;
 	}
 
