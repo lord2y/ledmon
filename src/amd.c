@@ -36,7 +36,7 @@
 #include <dmalloc.h>
 #endif
 
-#include "config.h"
+#include "config/config.h"
 #include "ibpi.h"
 #include "list.h"
 #include "utils.h"
@@ -120,6 +120,9 @@ int amd_em_enabled(const char *path)
 	} else if (!strncmp(platform, "DAYTONA_X", 9)) {
 		amd_interface = AMD_INTF_IPMI;
 		amd_ipmi_platform = AMD_PLATFORM_DAYTONA_X;
+	} else if (!strncmp(platform, "AS -4124GS-TNR", 14)){
+		amd_interface = AMD_SM_IPMI;
+		amd_ipmi_platform = AMD_PLATFORM_SUPERMICRO_X;
 	}
 
 	switch (amd_interface) {
@@ -127,7 +130,12 @@ int amd_em_enabled(const char *path)
 		rc = _amd_sgpio_em_enabled(path);
 		break;
 	case AMD_INTF_IPMI:
+		log_debug("path => %s\n", path);
 		rc = _amd_ipmi_em_enabled(path);
+		break;
+	case AMD_SM_IPMI:
+		log_debug("AMD_SM_IPMI - path => %s\n", path);
+		rc = _amd_ipmi_sm_em_enabled(path);
 		break;
 	default:
 		log_error("Unknown interface for AMD %s platform\n",
@@ -152,7 +160,12 @@ int amd_write(struct block_device *device, enum ibpi_pattern ibpi)
 		rc = _amd_sgpio_write(device, ibpi);
 		break;
 	case AMD_INTF_IPMI:
+		log_debug("ibpi => %s", ibpi2str(ibpi));
 		rc = _amd_ipmi_write(device, ibpi);
+		break;
+	case AMD_SM_IPMI:
+		log_debug("AMD_SM_IPMI - ibpi => %s\n",  ibpi2str(ibpi));
+		rc = _amd_ipmi_sm_write(device, ibpi);
 		break;
 	case AMD_INTF_UNSET:
 	default:
@@ -174,6 +187,9 @@ char *amd_get_path(const char *cntrl_path, const char *sysfs_path)
 		break;
 	case AMD_INTF_IPMI:
 		path = _amd_ipmi_get_path(cntrl_path, sysfs_path);
+		break;
+	case AMD_SM_IPMI:
+		path = _amd_ipmi_sm_get_path(cntrl_path, sysfs_path);
 		break;
 	case AMD_INTF_UNSET:
 	default:

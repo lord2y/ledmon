@@ -22,3 +22,6 @@
 int _amd_ipmi_em_enabled(const char *path);
 int _amd_ipmi_write(struct block_device *device, enum ibpi_pattern ibpi);
 char *_amd_ipmi_get_path(const char *cntrl_path, const char *sysfs_path);
+int _amd_ipmi_sm_em_enabled(const char *path);
+int _amd_ipmi_sm_write(struct block_device *device, enum ibpi_pattern ibpi);
+char *_amd_ipmi_sm_get_path(const char *cntrl_path, const char *sysfs_path);
