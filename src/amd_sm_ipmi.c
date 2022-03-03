@@ -33,13 +33,13 @@
 #define SM_SLAVE_ADDR 0x0
 
 static uint8_t amd_ibpi_ipmi_register[] = {
-	[IBPI_PATTERN_PFA] = 0x41,
+//	[IBPI_PATTERN_PFA] = 0x41,
 	[IBPI_PATTERN_LOCATE] = 0x0,
 	[IBPI_PATTERN_LOCATE_OFF] = 0x1,
-	[IBPI_PATTERN_FAILED_DRIVE] = 0x44,
-	[IBPI_PATTERN_FAILED_ARRAY] = 0x45,
-	[IBPI_PATTERN_REBUILD] = 0x46,
-	[IBPI_PATTERN_HOTSPARE] = 0x47,
+//	[IBPI_PATTERN_FAILED_DRIVE] = 0x44,
+//	[IBPI_PATTERN_FAILED_ARRAY] = 0x45,
+//	[IBPI_PATTERN_REBUILD] = 0x46,
+//	[IBPI_PATTERN_HOTSPARE] = 0x47,
 };
 
 /* The path we are given should be similar to
@@ -126,24 +126,20 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 {
 	int rc;
 	int status, data_sz;
-	uint8_t drives_status;
-	uint8_t new_drives_status;
 	uint8_t cmd_data[5];
 
 	memset(cmd_data, 0, sizeof(cmd_data));
 
 	cmd_data[0] = 0x6c;
-	cmd_data[1] = 0x1;
+	cmd_data[1] = 0x1; // 0 get, 1 set
 	cmd_data[2] = 0x0;
-	cmd_data[3] = 0x0;
+	cmd_data[3] = drive->port;
 	cmd_data[4] = reg;
 
-	/* Find current register setting */
 	status = 0;
 
-	log_debug("Retrieving current register status\n");
 	log_debug(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
-	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
+	log_debug(REG_FMT_2, "len", cmd_data[2], "drive #", cmd_data[3]);
 
 	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 5, &cmd_data, 1, &data_sz,
 		     &status);
@@ -153,29 +149,7 @@ static int _set_ipmi_register(int enable, uint8_t reg,
 		return rc;
 	}
 
-	drives_status = status;
-
-	if (enable)
-		new_drives_status = drives_status | drive->drive_bay;
-	else
-		new_drives_status = drives_status & ~drive->drive_bay;
-
-	/* Set the appropriate status */
-	status = 0;
-	cmd_data[4] = new_drives_status;
-
-	log_debug("Updating register status: %x -> %x\n", drives_status,
-		  new_drives_status);
-	log_debug(REG_FMT_2, "channel", cmd_data[0], "slave addr", cmd_data[1]);
-	log_debug(REG_FMT_2, "len", cmd_data[2], "register", cmd_data[3]);
-	log_debug(REG_FMT_1, "status", cmd_data[4]);
-
-	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 5, &cmd_data, 1, &data_sz,
-		     &status);
-	if (rc) {
-		log_error("Could not enable register %x\n", reg);
-		return rc;
-	}
+	log_debug("status => %i\n", status);
 
 	return 0;
 }
@@ -196,12 +170,12 @@ static int _disable_all_ibpi_states(struct amd_drive *drive)
 {
 	int rc;
 
-	rc = _disable_ibpi_state(drive, IBPI_PATTERN_PFA);
-	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_LOCATE);
+	//rc = _disable_ibpi_state(drive, IBPI_PATTERN_PFA);
+	rc = _disable_ibpi_state(drive, IBPI_PATTERN_LOCATE);
 	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_LOCATE_OFF);
-	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_FAILED_DRIVE);
-	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_FAILED_ARRAY);
-	rc |= _disable_ibpi_state(drive, IBPI_PATTERN_REBUILD);
+	//rc |= _disable_ibpi_state(drive, IBPI_PATTERN_FAILED_DRIVE);
+	//rc |= _disable_ibpi_state(drive, IBPI_PATTERN_FAILED_ARRAY);
+	//rc |= _disable_ibpi_state(drive, IBPI_PATTERN_REBUILD);
 
 	return rc;
 }
@@ -210,29 +184,34 @@ int _amd_ipmi_sm_em_enabled(const char *path)
 {
 	int rc;
 	int status, data_sz;
-	uint8_t cmd_data[4];
+	uint8_t cmd_data[5];
 	struct amd_drive drive;
 
 	log_debug("Enabling _adm_ipmi_sm_em_enabled(%s)\n", path);
 
 	memset(&drive, 0, sizeof(struct amd_drive));
 
-	cmd_data[0] = SM_CHAN;
-	cmd_data[1] = SM_SLAVE_ADDR;
-	cmd_data[2] = 0x1;
-	cmd_data[3] = 0x6c;
+	cmd_data[0] = 0x6c;
+	cmd_data[1] = 0x0;
+	cmd_data[2] = 0x0;
+	cmd_data[3] = 0x0;
+	cmd_data[4] = 0x0;
 
 	status = 0;
-	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 4, &cmd_data, 1,
+	rc = ipmicmd(BMC_SA, 0x0, 0x30, 0x70, 5, &cmd_data, 50,
 		     &data_sz, &status);
 
-	log_debug("rc => %i\n", rc);
+	//log_debug("rc => %i\n", rc);
 
 	if (rc) {
 		log_error("Can't determine status for SM-AMD platform\n");
 		return 0;
 	}
 	log_debug("status => %i\n", status);
+	if (status == 0){
+		log_error("An error has occurred.");
+		return 0;
+	}
 
 	return 1;
 }
@@ -256,7 +235,7 @@ int _amd_ipmi_sm_write(struct block_device *device, enum ibpi_pattern ibpi)
 	}
 
 	if (ibpi == IBPI_PATTERN_LOCATE_OFF) {
-		rc = _disable_ibpi_state(&drive, IBPI_PATTERN_LOCATE_OFF);
+		rc = _disable_ibpi_state(&drive, ibpi);
 		return rc;
 	}
 
@@ -265,7 +244,9 @@ int _amd_ipmi_sm_write(struct block_device *device, enum ibpi_pattern ibpi)
 		return rc;
 	*/
 
-	rc = _enable_ibpi_state(&drive, ibpi);
+	if (ibpi == IBPI_PATTERN_LOCATE) {
+	  rc = _enable_ibpi_state(&drive, ibpi);
+	}
 	if (rc)
 		return rc;
 

@@ -36,7 +36,7 @@
 #include <dmalloc.h>
 #endif
 
-#include "config/config.h"
+#include "config.h"
 #include "ibpi.h"
 #include "list.h"
 #include "utils.h"

@@ -36,7 +36,7 @@
 #include <dmalloc.h>
 #endif
 
-#include "config/config.h"
+#include "config.h"
 #include "ibpi.h"
 #include "list.h"
 #include "utils.h"
@@ -130,11 +130,9 @@ int amd_em_enabled(const char *path)
 		rc = _amd_sgpio_em_enabled(path);
 		break;
 	case AMD_INTF_IPMI:
-		log_debug("path => %s\n", path);
 		rc = _amd_ipmi_em_enabled(path);
 		break;
 	case AMD_SM_IPMI:
-		log_debug("AMD_SM_IPMI - path => %s\n", path);
 		rc = _amd_ipmi_sm_em_enabled(path);
 		break;
 	default:
@@ -160,11 +158,9 @@ int amd_write(struct block_device *device, enum ibpi_pattern ibpi)
 		rc = _amd_sgpio_write(device, ibpi);
 		break;
 	case AMD_INTF_IPMI:
-		log_debug("ibpi => %s", ibpi2str(ibpi));
 		rc = _amd_ipmi_write(device, ibpi);
 		break;
 	case AMD_SM_IPMI:
-		log_debug("AMD_SM_IPMI - ibpi => %s\n",  ibpi2str(ibpi));
 		rc = _amd_ipmi_sm_write(device, ibpi);
 		break;
 	case AMD_INTF_UNSET:
