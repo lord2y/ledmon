@@ -108,6 +108,9 @@ int amd_em_enabled(const char *path, struct led_ctx *ctx)
 	} else if (!strncmp(platform, "DAYTONA_X", 9)) {
 		amd_interface = AMD_INTF_IPMI;
 		amd_ipmi_platform = AMD_PLATFORM_DAYTONA_X;
+	} else if (!strncmp(platform, "ThinkSystem SR655 V3", 20)) {
+		amd_interface = AMD_INTF_NEW_INTERFACE;
+		amd_ipmi_platform = AMD_PLATFORM_LENOVO_X;
 	}
 
 	switch (amd_interface) {
@@ -116,6 +119,9 @@ int amd_em_enabled(const char *path, struct led_ctx *ctx)
 		break;
 	case AMD_INTF_IPMI:
 		rc = _amd_ipmi_em_enabled(path, ctx);
+		break;
+	case AMD_INTF_NEW_INTERFACE:
+		rc = _amd_new_interface_em_enabled(path, ctx);
 		break;
 	default:
 		lib_log(ctx, LED_LOG_LEVEL_ERROR,
@@ -137,11 +143,14 @@ status_t amd_write(struct block_device *device, enum led_ibpi_pattern ibpi)
 	case AMD_INTF_SGPIO:
 		return _amd_sgpio_write(device, ibpi);
 	case AMD_INTF_IPMI:
+	case AMD_INTF_NEW_INTERFACE:
+		lib_log(device->cntrl->ctx, LED_LOG_LEVEL_ERROR,
+			"I shoult return _amd_ipmi_write() %u\n", amd_interface);
 		return _amd_ipmi_write(device, ibpi);
 	case AMD_INTF_UNSET:
 	default:
 		lib_log(device->cntrl->ctx, LED_LOG_LEVEL_ERROR,
-			"Unsupported AMD interface %u\n", amd_interface);
+			"Pippo - Unsupported AMD interface %u\n", amd_interface);
 		return STATUS_FILE_WRITE_ERROR;
 	}
 }
@@ -155,6 +164,8 @@ char *amd_get_path(const char *cntrl_path, const char *sysfs_path, struct led_ct
 		path = _amd_sgpio_get_path(sysfs_path, ctx);
 		break;
 	case AMD_INTF_IPMI:
+	case AMD_INTF_NEW_INTERFACE:
+		printf("in amd_get_path()\n");
 		path = _amd_ipmi_get_path(cntrl_path, sysfs_path);
 		break;
 	case AMD_INTF_UNSET:

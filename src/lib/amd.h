@@ -23,6 +23,7 @@ enum amd_led_interfaces {
 	AMD_INTF_UNSET,
 	AMD_INTF_SGPIO,
 	AMD_INTF_IPMI,
+	AMD_INTF_NEW_INTERFACE, 
 };
 
 extern enum amd_led_interfaces amd_interface;
@@ -31,6 +32,7 @@ enum amd_ipmi_platforms {
 	AMD_PLATFORM_UNSET,
 	AMD_PLATFORM_ETHANOL_X,
 	AMD_PLATFORM_DAYTONA_X,
+	AMD_PLATFORM_LENOVO_X,
 };
 
 extern enum amd_ipmi_platforms amd_ipmi_platform;

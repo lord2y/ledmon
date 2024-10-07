@@ -120,6 +120,9 @@ static int _get_ipmi_nvme_port(char *path, struct led_ctx *ctx)
 	case AMD_PLATFORM_ETHANOL_X:
 		port -= 7;
 		break;
+	case AMD_PLATFORM_LENOVO_X:
+		return port;
+		break;
 	default:
 		break;
 	}
@@ -229,6 +232,11 @@ static int _ipmi_platform_channel(struct amd_drive *drive)
 	case AMD_PLATFORM_DAYTONA_X:
 		drive->channel = AMD_DAYTONA_X_CHANNEL;
 		break;
+	case AMD_PLATFORM_LENOVO_X:
+		rc = -1;
+		lib_log(drive->ctx, LED_LOG_LEVEL_ERROR,
+			"AMD Drive: port: %d, bay %x, channel: %u, tail_addr: %d, dev: %x\n", drive->port, (unsigned int)drive->drive_bay, drive->channel, drive->tail_addr, (unsigned int)drive->dev);
+		break;
 	default:
 		rc = -1;
 		lib_log(drive->ctx, LED_LOG_LEVEL_ERROR,
@@ -288,11 +296,14 @@ static int _set_ipmi_register(int enable, uint8_t reg, struct amd_drive *drive)
 	uint8_t cmd_data[5];
 
 	memset(cmd_data, 0, sizeof(cmd_data));
+	printf("In _set_ipmi_register\n");
 
 	rc = _ipmi_platform_channel(drive);
 	rc |= _ipmi_platform_tail_address(drive);
-	if (rc)
+	if (rc){
+		printf("_set_ipmi_register returns -1\n");
 		return -1;
+	}
 
 	cmd_data[0] = drive->channel;
 	cmd_data[1] = drive->tail_addr;
@@ -366,8 +377,11 @@ static status_t _change_ibpi_state(struct amd_drive *drive, enum led_ibpi_patter
 	lib_log(drive->ctx, LED_LOG_LEVEL_DEBUG, "%s %s LED\n", (enable) ? "Enabling" : "Disabling",
 		ibpi2str(ibpi));
 
-	if (_set_ipmi_register(enable, ibpi2val->value, drive))
+	if (_set_ipmi_register(enable, ibpi2val->value, drive)){
+		printf("trying to call _set_ipmi_register\n");
 		return STATUS_FILE_WRITE_ERROR;
+	}
+	printf("Do I return STATUS_SUCCESS from _change_ibpi_state()\n");
 	return STATUS_SUCCESS;
 }
 
@@ -394,6 +408,7 @@ int _amd_ipmi_em_enabled(const char *path, struct led_ctx *ctx)
 	struct amd_drive drive;
 
 	memset(&drive, 0, sizeof(struct amd_drive));
+	printf("I'm in _amd_ipmi_em_enable\n");
 
 	rc = _ipmi_platform_channel(&drive);
 	rc |= _ipmi_platform_tail_address(&drive);
@@ -473,5 +488,10 @@ char *_amd_ipmi_get_path(const char *cntrl_path, const char *sysfs_path)
 		return NULL;
 
 	return strndup(cntrl_path, (t - cntrl_path) + 1);
+}
+
+int _amd_new_interface_em_enabled(const char *path, struct led_ctx *ctx) {
+	printf("In _amd_new_interface_em_enable -> path: %s\n", path);
+	return 1; //fake 1
 }
 
