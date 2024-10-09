@@ -446,7 +446,6 @@ int _amd_ipmi_em_enabled(const char *path, struct led_ctx *ctx)
 	struct amd_drive drive;
 
 	memset(&drive, 0, sizeof(struct amd_drive));
-	printf("I'm in _amd_ipmi_em_enable\n");
 
 	rc = _ipmi_platform_channel(&drive);
 	rc |= _ipmi_platform_tail_address(&drive);
