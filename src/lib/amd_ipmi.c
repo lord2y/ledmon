@@ -49,6 +49,7 @@ const struct ibpi2value ibpi2amd_ipmi[] = {
 
 #define AMD_ETHANOL_X_CHANNEL	0x0d
 #define AMD_DAYTONA_X_CHANNEL	0x17
+#define AMD_LENOVO_X_CHANNEL	0x00
 
 #define AMD_BASE_TAIL_ADDR	0xc0
 #define AMD_NVME_TAIL_ADDR	0xc4
@@ -216,7 +217,7 @@ static int _get_amd_ipmi_drive(const char *start_path,
 	}
 
 	lib_log(drive->ctx, LED_LOG_LEVEL_DEBUG,
-		"AMD Drive: port: %d, bay %x\n", drive->port, (unsigned int)drive->drive_bay);
+		"(get_amd_ipmi_drive) AMD Drive: port: %d, bay %x\n", drive->port, (unsigned int)drive->drive_bay);
 
 	return 0;
 }
@@ -233,9 +234,8 @@ static int _ipmi_platform_channel(struct amd_drive *drive)
 		drive->channel = AMD_DAYTONA_X_CHANNEL;
 		break;
 	case AMD_PLATFORM_LENOVO_X:
-		rc = -1;
-		lib_log(drive->ctx, LED_LOG_LEVEL_ERROR,
-			"AMD Drive: port: %d, bay %x, channel: %u, tail_addr: %d, dev: %x\n", drive->port, (unsigned int)drive->drive_bay, drive->channel, drive->tail_addr, (unsigned int)drive->dev);
+		//rc = -1;
+		drive->channel = AMD_LENOVO_X_CHANNEL;
 		break;
 	default:
 		rc = -1;
@@ -287,6 +287,44 @@ static int _ipmi_platform_tail_address(struct amd_drive *drive)
 	return rc;
 }
 
+static int _set_attention_register(int enable, uint8_t reg, struct amd_drive *drive){
+        char attention_path[PATH_MAX];
+        struct stat st;
+
+        // Construct the attention path based on the drive information
+        snprintf(attention_path, sizeof(attention_path), "/sys/bus/pci/slots/%d/attention", drive->port);
+        lib_log(drive->ctx, LED_LOG_LEVEL_INFO, "attention_path is %s\n", attention_path);
+
+        // Check if the attention file exists
+        if (stat(attention_path, &st) != 0) {
+                lib_log(drive->ctx, LED_LOG_LEVEL_ERROR,
+            	      "attention path does not exist\n");
+                return -1; 
+        }
+
+        // Open the attention file for writing
+        FILE *attention_file = fopen(attention_path, "w");
+        if (!attention_file) {
+		lib_log(drive->ctx, LED_LOG_LEVEL_ERROR,
+                      "fopen attention file failed\n");
+            return -1; 
+        }
+
+	printf("enable =>%d, reg=>%d\n", enable, reg);
+        // Write the value based on the enable flag
+        if (enable) {
+            fprintf(attention_file, "1\n"); // Write 1 to turn on
+        } else {
+            fprintf(attention_file, "0\n"); // Write 0 to turn off
+        }
+
+        fclose(attention_file);
+        lib_log(drive->ctx, LED_LOG_LEVEL_INFO,
+		     "Set attention register for port %d to %d\n", drive->port, enable ? 1 : 0);
+        return 0;
+ 
+}
+
 static int _set_ipmi_register(int enable, uint8_t reg, struct amd_drive *drive)
 {
 	int rc;
@@ -296,14 +334,12 @@ static int _set_ipmi_register(int enable, uint8_t reg, struct amd_drive *drive)
 	uint8_t cmd_data[5];
 
 	memset(cmd_data, 0, sizeof(cmd_data));
-	printf("In _set_ipmi_register\n");
 
 	rc = _ipmi_platform_channel(drive);
 	rc |= _ipmi_platform_tail_address(drive);
-	if (rc){
-		printf("_set_ipmi_register returns -1\n");
+	if (rc)
 		return -1;
-	}
+	
 
 	cmd_data[0] = drive->channel;
 	cmd_data[1] = drive->tail_addr;
@@ -377,11 +413,13 @@ static status_t _change_ibpi_state(struct amd_drive *drive, enum led_ibpi_patter
 	lib_log(drive->ctx, LED_LOG_LEVEL_DEBUG, "%s %s LED\n", (enable) ? "Enabling" : "Disabling",
 		ibpi2str(ibpi));
 
-	if (_set_ipmi_register(enable, ibpi2val->value, drive)){
-		printf("trying to call _set_ipmi_register\n");
+	int rc_ipmi = _set_ipmi_register(enable, ibpi2val->value, drive);
+
+	int rc_attention = _set_attention_register(enable, ibpi2val->value, drive);
+
+	if ( rc_ipmi && rc_attention )
 		return STATUS_FILE_WRITE_ERROR;
-	}
-	printf("Do I return STATUS_SUCCESS from _change_ibpi_state()\n");
+	
 	return STATUS_SUCCESS;
 }
 
@@ -465,6 +503,29 @@ status_t _amd_ipmi_write(struct block_device *device, enum led_ibpi_pattern ibpi
 	return _change_ibpi_state(&drive, ibpi, true);
 }
 
+status_t _amd_attention_write(struct block_device *device, enum led_ibpi_pattern ibpi)
+{
+	struct amd_drive drive;
+
+	memset(&drive, 0, sizeof(struct amd_drive));
+	drive.ctx = device->cntrl->ctx;
+
+	lib_log(drive.ctx, LED_LOG_LEVEL_INFO, "\n");
+	lib_log(drive.ctx, LED_LOG_LEVEL_INFO, "Setting %s...", ibpi2str(ibpi));
+	lib_log(drive.ctx, LED_LOG_LEVEL_INFO, "Path %s...", device->cntrl_path);
+
+	if (_get_amd_ipmi_drive(device->cntrl_path, &drive))
+		return STATUS_FILE_READ_ERROR;
+
+	if ((ibpi == LED_IBPI_PATTERN_NORMAL) || (ibpi == LED_IBPI_PATTERN_ONESHOT_NORMAL))
+		return _disable_all_ibpi_states(&drive);
+
+	if (ibpi == LED_IBPI_PATTERN_LOCATE_OFF)
+		return _change_ibpi_state(&drive, LED_IBPI_PATTERN_LOCATE, false);
+
+	return _change_ibpi_state(&drive, ibpi, true);
+}
+
 char *_amd_ipmi_get_path(const char *cntrl_path, const char *sysfs_path)
 {
 	char *t;
@@ -491,7 +552,7 @@ char *_amd_ipmi_get_path(const char *cntrl_path, const char *sysfs_path)
 }
 
 int _amd_new_interface_em_enabled(const char *path, struct led_ctx *ctx) {
-	printf("In _amd_new_interface_em_enable -> path: %s\n", path);
+	//printf("In _amd_new_interface_em_enable -> path: %s\n", path);
 	return 1; //fake 1
 }
 

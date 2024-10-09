@@ -139,18 +139,18 @@ status_t amd_write(struct block_device *device, enum led_ibpi_pattern ibpi)
 	if (ibpi == device->ibpi_prev)
 		return STATUS_SUCCESS;
 
+	printf("(amd_write) Setting...%s\n", ibpi2str(ibpi));
 	switch (amd_interface) {
 	case AMD_INTF_SGPIO:
 		return _amd_sgpio_write(device, ibpi);
 	case AMD_INTF_IPMI:
-	case AMD_INTF_NEW_INTERFACE:
-		lib_log(device->cntrl->ctx, LED_LOG_LEVEL_ERROR,
-			"I shoult return _amd_ipmi_write() %u\n", amd_interface);
 		return _amd_ipmi_write(device, ibpi);
+	case AMD_INTF_NEW_INTERFACE:
+		return _amd_attention_write(device, ibpi);
 	case AMD_INTF_UNSET:
 	default:
 		lib_log(device->cntrl->ctx, LED_LOG_LEVEL_ERROR,
-			"Pippo - Unsupported AMD interface %u\n", amd_interface);
+			"Unsupported AMD interface %u\n", amd_interface);
 		return STATUS_FILE_WRITE_ERROR;
 	}
 }
@@ -165,7 +165,6 @@ char *amd_get_path(const char *cntrl_path, const char *sysfs_path, struct led_ct
 		break;
 	case AMD_INTF_IPMI:
 	case AMD_INTF_NEW_INTERFACE:
-		printf("in amd_get_path()\n");
 		path = _amd_ipmi_get_path(cntrl_path, sysfs_path);
 		break;
 	case AMD_INTF_UNSET:

@@ -8,4 +8,5 @@
 int _amd_ipmi_em_enabled(const char *path, struct led_ctx *ctx);
 int _amd_new_interface_em_enabled(const char *paht, struct led_ctx *ctx);
 status_t _amd_ipmi_write(struct block_device *device, enum led_ibpi_pattern ibpi);
+status_t _amd_attention_write(struct block_device *device, enum led_ibpi_pattern ibpi);
 char *_amd_ipmi_get_path(const char *cntrl_path, const char *sysfs_path);
